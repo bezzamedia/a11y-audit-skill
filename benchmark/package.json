@@ -1,0 +1,16 @@
+{
+  "name": "a11y-benchmark",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Benchmark harness for the accessibility skill: ACT Rules coverage + head-to-head vs other tools. Heavy comparison deps live here, separate from the lean skill.",
+  "scripts": {
+    "act": "node act-runner.mjs",
+    "compare": "node compare-runner.mjs"
+  },
+  "dependencies": {
+    "@axe-core/cli": "^4.11.3",
+    "chromedriver": "^148.0.4",
+    "pa11y": "^8.0.0"
+  }
+}

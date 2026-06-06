@@ -7,6 +7,9 @@ node_modules/
 a11y-audit-*.json
 a11y-audit-*.md
 
+# Benchmark output + cached ACT test-case index
+benchmark/results/
+
 # Playwright artefacts
 test-results/
 playwright-report/
