@@ -1,0 +1,16 @@
+# Dependencies (reinstall with `npm ci` + `playwright install chromium`)
+node_modules/
+
+# Generated audit reports (written into the audited project, never committed here)
+/reports/
+/docs/audits/
+a11y-audit-*.json
+a11y-audit-*.md
+
+# Playwright artefacts
+test-results/
+playwright-report/
+
+# OS / editor
+.DS_Store
+*.log
