@@ -80,12 +80,14 @@ The flags you'll reach for most:
 | `--dismiss-consent` | close cookie banners before scanning |
 | `--auth-state file.json` | audit logged-in pages (Playwright storageState) |
 | `--throttle` / `--concurrency` | go easy on live sites |
-| `--out` / `--format md\|json\|both` / `--stdout` | where and what to write |
+| `--out` / `--format md\|json\|html\|all` / `--stdout` | where and what to write (default `all`) |
 | `--fail-on P0\|P1\|P2` | non-zero exit code for CI (default P1) |
 
 ## Output
 
-You get a JSON file with the raw data and a Markdown report. The report has a health score
+You get three files: a JSON file with the raw data, a Markdown report, and a standalone styled
+HTML report (self-contained, no external assets, and itself accessible) that opens in any browser.
+The report has a health score
 (Lighthouse 40%, axe 40%, manual checklist 20%), the findings grouped P0 to P3 with their
 WCAG criterion, page and selector, the manual checklist results, a list of what wasn't
 tested, and the known limitations. Files land in `docs/audits/accessibility/` (or

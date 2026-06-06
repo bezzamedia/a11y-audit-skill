@@ -100,7 +100,9 @@ de manual-score (`passes / (passes+fails) × 100`).
   "Handmatige checklist" in het Markdown-rapport in (met **Edit**) en herbereken de composite
   met weging **Lighthouse 40% / axe 40% / manual 20%** (zie `references/severity-mapping.md`).
 - In **plan mode**: presenteer alles inline; schrijf niets.
-- Standaardlocatie rapport: `docs/audits/accessibility/` (anders `reports/accessibility/`).
+- Standaardlocatie rapport: `docs/audits/accessibility/` (anders `reports/accessibility/`). Het script
+  schrijft standaard drie formaten: Markdown, JSON én een zelfstandig, zelf-toegankelijk HTML-rapport
+  (`--format md|json|html|both|all`).
 
 ## Stap 7 — Fixes voorstellen
 Detecteer de stack (`package.json`/config) en gebruik het juiste remediation-doc:

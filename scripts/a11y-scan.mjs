@@ -52,7 +52,7 @@ RENDER / AUTH
 
 OUTPUT
   --out <dir>            outputmap (default docs/audits/accessibility of reports/)
-  --format <md|json|both>  default both
+  --format <md|json|html|both|all>  default all (md + json + html)
   --stdout               JSON naar stdout, geen bestanden
   --fail-on <P0|P1|P2|P3>  exit-code drempel voor CI (default P1)
 
@@ -259,7 +259,7 @@ async function main() {
     process.stdout.write(JSON.stringify(report.json, null, 2) + '\n')
   } else {
     const outDir = resolveOutDir(values.out)
-    const written = writeReport(outDir, baseUrl, report, values.format || 'both', date)
+    const written = writeReport(outDir, baseUrl, report, values.format || 'all', date)
     log('rapport geschreven:')
     for (const p of written) log('  ' + p)
   }

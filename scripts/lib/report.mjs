@@ -168,7 +168,208 @@ function buildMarkdown(merged, meta) {
   return lines.join('\n')
 }
 
-/** Returns { json, markdown }. */
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+const SEV_HTML = {
+  P0: { label: 'P0 · Kritiek', cls: 'p0' },
+  P1: { label: 'P1 · Ernstig', cls: 'p1' },
+  P2: { label: 'P2 · Matig', cls: 'p2' },
+  P3: { label: 'P3 · Klein', cls: 'p3' },
+}
+
+function bandClass(score) {
+  if (score == null) return 'na'
+  if (score >= 90) return 'b-excellent'
+  if (score >= 75) return 'b-good'
+  if (score >= 60) return 'b-ok'
+  if (score >= 40) return 'b-poor'
+  return 'b-crit'
+}
+
+const HTML_STYLE = `
+:root{--bg:#fff;--fg:#1a1a1a;--muted:#5a5a5a;--line:#e3e5e5;--card:#f7f8f8;
+--p0:#b00020;--p1:#b35900;--p2:#7a6200;--p3:#555;--ok:#0f7a52;--link:#0b5cab}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+header,main,footer{max-width:920px;margin:0 auto;padding:0 20px}
+header{padding-top:28px;border-bottom:1px solid var(--line);padding-bottom:16px}
+h1{margin:0 0 4px;font-size:1.8rem}
+h2{margin:34px 0 12px;font-size:1.3rem;border-bottom:1px solid var(--line);padding-bottom:6px}
+.sub{font-size:1.05rem;margin:.2rem 0}
+.muted{color:var(--muted);font-size:.9rem}
+a{color:var(--link)}
+a:focus-visible,*:focus-visible{outline:3px solid var(--link);outline-offset:2px}
+code{background:#eceeee;padding:.05em .35em;border-radius:4px;font-size:.85em;word-break:break-word}
+.warn{background:#fff7e6;border:1px solid #f0d8a0;border-radius:8px;padding:10px 14px;margin:18px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
+.scorecard{display:flex;gap:22px;align-items:center;flex-wrap:wrap;margin-top:18px}
+.gauge{width:120px;height:120px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;flex:0 0 auto}
+.gauge .num{font-size:2.2rem;font-weight:700;line-height:1}
+.gauge .den{font-size:.8rem;opacity:.9}
+.b-excellent{background:#0f7a52}.b-good{background:#357a35}.b-ok{background:#7a6200}.b-poor{background:#b35900}.b-crit{background:#b00020}.na{background:#777}
+.scoremeta{flex:1 1 280px}
+.band{font-size:1.2rem;font-weight:600;margin:.1rem 0}
+.components{list-style:none;padding:0;margin:.4rem 0;display:flex;gap:16px;flex-wrap:wrap;font-size:.9rem}
+.sev{display:inline-block;padding:.1em .5em;border-radius:5px;color:#fff;font-size:.78rem;font-weight:700;white-space:nowrap}
+.sev.p0{background:var(--p0)}.sev.p1{background:var(--p1)}.sev.p2{background:var(--p2)}.sev.p3{background:var(--p3)}
+.sevcounts{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:.6rem 0 .2rem}
+.summary{padding-left:1.1rem}.summary li{margin:.25rem 0}
+.sevhead{margin-top:22px;padding-left:10px;border-left:4px solid #ccc;font-size:1.05rem}
+.sevhead.p0{border-color:var(--p0)}.sevhead.p1{border-color:var(--p1)}.sevhead.p2{border-color:var(--p2)}.sevhead.p3{border-color:var(--p3)}
+.issue{border:1px solid var(--line);border-left:4px solid #ccc;border-radius:8px;padding:10px 14px;margin:10px 0;background:#fff}
+.issue.p0{border-left-color:var(--p0)}.issue.p1{border-left-color:var(--p1)}.issue.p2{border-left-color:var(--p2)}.issue.p3{border-left-color:var(--p3)}
+.issue h3{margin:.1rem 0 .3rem;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-weight:600;font-size:1rem}
+.wcag{color:var(--muted);font-weight:500;font-size:.85em}
+.issue .meta{font-size:.85rem;color:var(--muted);margin:.2rem 0}
+.conf{font-weight:600}.conf.ok{color:var(--ok)}
+.ref{font-size:.85rem;margin-left:6px}
+.insts{list-style:none;padding:0;margin:.3rem 0 0;font-size:.85rem}
+.insts li{padding:.15rem 0;border-top:1px dashed var(--line)}
+.insts .url{color:var(--muted);margin-left:8px;word-break:break-all}
+.more{color:var(--muted);font-style:italic}
+.note{background:#eef3f8;border-radius:8px;padding:10px 14px;font-size:.92rem}
+.second{font-size:.9rem}
+footer{margin:30px auto;padding-top:14px;border-top:1px solid var(--line)}
+@media(max-width:560px){.gauge{width:96px;height:96px}.gauge .num{font-size:1.7rem}}
+`
+
+function buildHtml(merged, meta) {
+  const date = meta.date || isoDate()
+  const esc = escapeHtml
+  const s = merged.scores
+  const c = merged.scanConditions || {}
+  const e = meta.engines
+  const engines =
+    `axe-core ${esc(e.axe)} · ${e.htmlcs ? 'HTMLCS ' + esc(e.htmlcs) : 'HTMLCS (uit)'} · ` +
+    `${e.lighthouse ? 'Lighthouse ' + esc(e.lighthouse) : 'Lighthouse (uit)'}`
+
+  const instList = (issue) => {
+    const items = issue.instances
+      .slice(0, 8)
+      .map((i) => `<li><code>${esc(i.selector || '(pagina-niveau)')}</code><span class="url">${esc(i.page)}</span></li>`)
+      .join('')
+    const more = issue.instances.length > 8 ? `<li class="more">… +${issue.instances.length - 8} meer</li>` : ''
+    return `<ul class="insts">${items}${more}</ul>`
+  }
+
+  const issueCard = (issue) => {
+    const sev = SEV_HTML[issue.severity] || { label: issue.severity, cls: '' }
+    const wcag = issue.wcag.length ? `<span class="wcag">WCAG ${esc(issue.wcag.join(', '))}</span>` : ''
+    const pages = new Set(issue.instances.map((x) => x.page)).size
+    const conf = issue.crossConfirmed
+      ? `<span class="conf ok">✓ axe + HTMLCS</span>`
+      : `<span class="conf">bron: ${esc(issue.engine)}</span>`
+    const help = issue.helpUrl ? `<a class="ref" href="${esc(issue.helpUrl)}" rel="noopener noreferrer">regel-uitleg ↗</a>` : ''
+    return `<article class="issue ${sev.cls}">
+<h3><span class="sev ${sev.cls}">${esc(sev.label)}</span> ${wcag} ${esc(issue.help)}</h3>
+<p class="meta"><code>${esc(issue.ruleId)}</code> · ${issue.instances.length}× op ${pages} pagina(’s) · ${conf}${help}</p>
+${instList(issue)}
+</article>`
+  }
+
+  const findings =
+    merged.severityOrder
+      .map((sevKey) => {
+        const group = merged.issues.filter((i) => i.severity === sevKey)
+        if (!group.length) return ''
+        return `<h3 class="sevhead ${SEV_HTML[sevKey]?.cls || ''}">${esc(SEVERITY_LABEL[sevKey])}</h3>${group.map(issueCard).join('')}`
+      })
+      .join('') || '<p>Geen geautomatiseerde overtredingen.</p>'
+
+  let secondHtml
+  if (!merged.secondOpinion || merged.secondOpinion.length === 0) {
+    secondHtml = '<p>Geen extra HTMLCS-meldingen buiten wat axe al vond.</p>'
+  } else {
+    const items = merged.secondOpinion
+      .slice(0, 25)
+      .map((issue) => {
+        const wcag = issue.wcag.length ? `<span class="wcag">WCAG ${esc(issue.wcag.join(', '))}</span> ` : ''
+        const pages = new Set(issue.instances.map((x) => x.page)).size
+        return `<li>${wcag}${esc(issue.help)} <code>${esc(issue.ruleId)}</code> · ${issue.instances.length}× op ${pages} pagina(’s)</li>`
+      })
+      .join('')
+    const more = merged.secondOpinion.length > 25 ? `<li class="more">… +${merged.secondOpinion.length - 25} meer</li>` : ''
+    secondHtml =
+      `<p class="note">${merged.secondOpinion.length} melding(en) die alléén HTMLCS zag (~53% precies op de ACT-benchmark). ` +
+      `Hints om handmatig te checken; tellen niet mee in score/P-telling/CI-gate.</p><ul class="second">${items}${more}</ul>`
+  }
+
+  const top =
+    merged.issues
+      .slice(0, 5)
+      .map((issue) => {
+        const wcag = issue.wcag.length ? `WCAG ${esc(issue.wcag.join(', '))} · ` : ''
+        return `<li>${issue.crossConfirmed ? '✓ ' : ''}<span class="sev ${SEV_HTML[issue.severity]?.cls}">${esc(issue.severity)}</span> ${wcag}${esc(issue.help)} — ${issue.instances.length}×</li>`
+      })
+      .join('') || '<li>Geen geautomatiseerde overtredingen gevonden.</li>'
+
+  const clean = merged.pages.filter((p) => p.navOk && (p.axeViolations === 0 || p.axeViolations == null))
+  const cleanHtml = clean.length
+    ? `<ul>${clean.slice(0, 20).map((p) => `<li>${esc(p.url)}</li>`).join('')}</ul>`
+    : '<p>Geen enkele gescande pagina was vrij van overtredingen.</p>'
+
+  const navFailed = merged.pages.filter((p) => !p.navOk)
+  let notTested
+  if (!navFailed.length && (!merged.skipped || !merged.skipped.length)) {
+    notTested = '<p>Alle ontdekte pagina(’s) zijn getoetst.</p>'
+  } else {
+    const a = navFailed.map((p) => `<li>${esc(p.url)} — navigatie mislukt (status ${p.status || '—'})</li>`).join('')
+    const b = (merged.skipped || []).map((sk) => `<li>${esc(sk.url)} — ${esc(sk.reason)}</li>`).join('')
+    notTested = `<ul>${a}${b}</ul>`
+  }
+
+  const limitations = LIMITATIONS.map((l) => `<li>${esc(l)}</li>`).join('')
+
+  return `<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accessibility Audit — ${esc(meta.host)} — ${esc(date)}</title>
+<style>${HTML_STYLE}</style>
+</head>
+<body>
+<header>
+<h1>Accessibility Audit</h1>
+<p class="sub"><strong>${esc(meta.host)}</strong> · ${esc(date)} · WCAG ${esc(meta.level)}</p>
+<p class="muted">Doel: <a href="${esc(meta.baseUrl)}" rel="noopener noreferrer">${esc(meta.baseUrl)}</a> · ${merged.pages.length} pagina(’s) · Engines: ${engines}</p>
+<p class="muted">Scan-condities: consent ${c.consentRequested ? (c.anyConsentDismissed ? 'gesloten' : 'niet gevonden') : 'niet behandeld'} · auth ${c.auth ? 'ja' : 'nee'} · settle ${c.settleMs}ms · discovery: ${esc(merged.source || '')}${merged.truncated ? ` · ⚠ ${merged.truncated} pagina’s afgekapt` : ''}</p>
+</header>
+<main>
+<section class="card scorecard">
+<div class="gauge ${bandClass(s.composite)}"><span class="num">${s.composite == null ? '—' : s.composite}</span><span class="den">/100</span></div>
+<div class="scoremeta">
+<p class="band">${esc(s.compositeBand)} <span class="muted">(composite)</span></p>
+<ul class="components">
+<li>Lighthouse a11y: <strong>${s.lighthouseAvg == null ? '—' : s.lighthouseAvg + '/100'}</strong></li>
+<li>axe pass-rate: <strong>${s.axePassRate == null ? '—' : s.axePassRate + '%'}</strong></li>
+<li>Handmatige checklist: <strong>nog niet ingevuld</strong></li>
+</ul>
+<p class="sevcounts"><span class="sev p0">P0 ${merged.counts.P0}</span><span class="sev p1">P1 ${merged.counts.P1}</span><span class="sev p2">P2 ${merged.counts.P2}</span><span class="sev p3">P3 ${merged.counts.P3}</span><span class="muted">· ${merged.totalInstances} instanties</span></p>
+<p class="muted">Cross-engine: ${merged.crossConfirmedCount} van ${merged.issues.length} axe-bevindingen ook door HTMLCS bevestigd (✓).</p>
+</div>
+</section>
+<p class="warn">⚠️ Geautomatiseerde scans dekken ~30–50% van WCAG. Een hoge score zonder ingevulde handmatige checklist betekent <strong>niet</strong> “toegankelijk”.</p>
+<section><h2>Samenvatting</h2><ul class="summary">${top}</ul></section>
+<section><h2>Bevindingen</h2>${findings}</section>
+<section><h2>Tweede mening (HTMLCS-only)</h2>${secondHtml}</section>
+<section><h2>Handmatige checklist</h2><p class="note">Nog niet ingevuld. Loop toetsenbord/tab-volgorde, focusbeheer, screenreader en reflow/zoom door — geen scanner dekt die. Zie <code>references/manual-checklist.md</code>.</p></section>
+<section><h2>Pass</h2>${cleanHtml}</section>
+<section><h2>Niet getoetst</h2>${notTested}${merged.lighthouseSkippedReason ? `<p class="muted">Lighthouse overgeslagen: ${esc(merged.lighthouseSkippedReason)}</p>` : ''}</section>
+<section><h2>Beperkingen</h2><ul>${limitations}</ul></section>
+</main>
+<footer><p class="muted">Gegenereerd door de accessibility-skill · ${esc(date)} · Dit rapport is zelf toegankelijk opgemaakt.</p></footer>
+</body>
+</html>`
+}
+
+/** Returns { json, markdown, html }. */
 export function buildReport(merged, meta) {
   const json = {
     meta: { ...meta, generatedAt: new Date().toISOString() },
@@ -185,22 +386,31 @@ export function buildReport(merged, meta) {
     skipped: merged.skipped || [],
     lighthouseSkippedReason: merged.lighthouseSkippedReason || null,
   }
-  return { json, markdown: buildMarkdown(merged, meta) }
+  return { json, markdown: buildMarkdown(merged, meta), html: buildHtml(merged, meta) }
 }
 
-/** Write report files to disk. Returns the paths written. */
-export function writeReport(outDir, baseUrl, report, format = 'both', date = isoDate()) {
+/**
+ * Write report files to disk. Returns the paths written.
+ * format: md | json | html | both (md+json) | all (md+json+html, default).
+ */
+export function writeReport(outDir, baseUrl, report, format = 'all', date = isoDate()) {
   fs.mkdirSync(outDir, { recursive: true })
   const stem = `a11y-audit-${slugHost(baseUrl)}-${date}`
   const written = []
-  if (format === 'json' || format === 'both') {
+  const want = (f) => format === f || format === 'all' || (format === 'both' && (f === 'md' || f === 'json'))
+  if (want('json')) {
     const p = path.join(outDir, `${stem}.json`)
     fs.writeFileSync(p, JSON.stringify(report.json, null, 2))
     written.push(p)
   }
-  if (format === 'md' || format === 'both') {
+  if (want('md')) {
     const p = path.join(outDir, `${stem}.md`)
     fs.writeFileSync(p, report.markdown)
+    written.push(p)
+  }
+  if (want('html')) {
+    const p = path.join(outDir, `${stem}.html`)
+    fs.writeFileSync(p, report.html)
     written.push(p)
   }
   return written
