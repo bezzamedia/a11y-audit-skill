@@ -39,7 +39,7 @@ git clone https://github.com/bezzamedia/a11y-audit-skill.git ~/.claude/skills/ac
 cd ~/.claude/skills/accessibility/scripts
 npm ci
 npx playwright install chromium
-node ../scripts/doctor.mjs   # verify everything is present
+node doctor.mjs   # verify everything is present
 ```
 
 Dependencies (Playwright, @axe-core/playwright, axe-core, html_codesniffer, lighthouse) install
