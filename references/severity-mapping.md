@@ -16,19 +16,22 @@ afwijken; `lib/util.mjs` (`AXE_IMPACT_TO_SEVERITY`) en `lib/merge.mjs` implement
 Lighthouse geeft geen impact-niveau. Lighthouse-only bevindingen (audits die axe niet
 rapporteerde) krijgen default **P2** en worden gemarkeerd `bron: lighthouse`.
 
-**HTMLCS (HTML_CodeSniffer — tweede engine).** Geeft ook geen impact-niveau; alleen
-**Errors** (type 1) worden als bevinding gerapporteerd (Warnings/Notices zijn te ruis-gevoelig
-en worden overgeslagen). Een Error = een definitieve overtreding → default **P1**. HTMLCS draait
-geïnjecteerd in dezelfde Playwright-pagina als axe, dus op identieke DOM.
+**HTMLCS (HTML_CodeSniffer — tweede engine).** Draait geïnjecteerd in dezelfde Playwright-pagina
+als axe (identieke DOM); alleen Errors (type 1) worden meegenomen. HTMLCS is **geen gelijkwaardige
+P-bron** — zie de bedrading hieronder.
 
-## Cross-engine bevestiging
+## Engine-bedrading (benchmark-gedreven)
 
-axe en HTMLCS emitteren beide een WCAG success criterion per bevinding. Een issue heet
-**bevestigd (✓)** wanneer ≥2 engines dezelfde **(WCAG-SC, pagina)** vlaggen — dat zijn de
-high-confidence issues. Een issue dat maar door één engine wordt gezien krijgt **⚠ — handmatig
-verifiëren** (elke engine heeft eigen false positives én blinde vlekken; bv. HTMLCS traverseert
-geen same-origin iframes, axe wél). Het rapport toont per bevinding welke engines hem bevestigden
-en een telling bovenaan. Zet HTMLCS uit met `--no-htmlcs`.
+Op de [W3C ACT-testsuite](../benchmark/) scoort axe alleen precisie 87% / recall 46%, terwijl
+HTMLCS als gelijkwaardige bron de precisie naar 70% trok voor ~2pp recall. De cross-confirmed
+subset (axe **én** HTMLCS) scoorde echter 91% precisie. Daarom:
+
+- **axe (+ Lighthouse-only audits) = primaire P0–P3-bron** en de basis voor `--fail-on`.
+- **HTMLCS bevestigt axe-bevindingen.** Vlaggen beide dezelfde (WCAG-SC, pagina), dan krijgt de
+  axe-bevinding **✓ bevestigd door axe + HTMLCS** (high-confidence).
+- **HTMLCS-only meldingen** (SC/pagina die axe niet zag) gaan naar een aparte **"Tweede mening"**-
+  sectie. Die telt **niet** mee in de score, de P-telling of de CI-gate — het zijn aanwijzingen om
+  handmatig te verifiëren (~53% precisie). Zet HTMLCS uit met `--no-htmlcs`.
 
 ## De-duplicatie
 

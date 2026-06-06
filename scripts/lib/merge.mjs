@@ -1,6 +1,12 @@
-// Combine the axe pass + Lighthouse pass into one normalised result set:
-// group findings into actionable issues, de-duplicate axe vs Lighthouse,
-// and compute the composite health score.
+// Combine the engines into one result set.
+//
+// Wiring is benchmark-driven (see benchmark/FINDINGS.md): on the W3C ACT suite,
+// axe-core alone scores precision 87% / recall 46%, while treating HTMLCS as an
+// equal source dropped precision to 70% for ~2pp of recall. So:
+//   - axe (+ Lighthouse-only audits) are the primary, P0–P3-counted findings.
+//   - HTMLCS is used to CONFIRM axe findings (the cross-confirmed subset scored
+//     91% precision) and is otherwise demoted to a separate "second opinion"
+//     list that does NOT feed the counts, the score, or the CI gate.
 
 import { SEVERITY_ORDER } from './util.mjs'
 
@@ -15,65 +21,47 @@ function band(score) {
   return 'Kritiek'
 }
 
-/**
- * @param {Array<{url, navOk, status, consent, axe, navError}>} pageResults
- * @param {{available:boolean, pages:object, reason?:string}} lighthouse
- * @param {object} extra { skipped, source, truncated, scanConditions }
- */
 export function mergeResults(pageResults, lighthouse, extra = {}) {
-  // --- 1. group axe + htmlcs findings into issues keyed by ruleId ---
-  const issueMap = new Map() // ruleId -> issue
-  const axeRuleIdsByPage = new Map() // pageUrl -> Set(ruleId)
+  const issueMap = new Map() // ruleId -> primary issue (axe / lighthouse)
+  const axeScPage = new Set() // `${sc}|${page}` covered by axe
+  const axeRuleIdsByPage = new Map()
 
-  const addFinding = (f) => {
-    let issue = issueMap.get(f.ruleId)
-    if (!issue) {
-      issue = {
-        engine: f.engine,
-        ruleId: f.ruleId,
-        severity: f.severity,
-        wcag: f.wcag,
-        help: f.help,
-        description: f.description,
-        helpUrl: f.helpUrl,
-        instances: [],
-      }
-      issueMap.set(f.ruleId, issue)
-    }
-    issue.instances.push({ page: f.page, selector: f.selector, snippet: f.snippet })
-  }
-
+  // --- 1. axe findings (primary, P-counted) ---
   for (const pr of pageResults) {
-    if (pr.axe) {
-      const set = axeRuleIdsByPage.get(pr.url) || new Set()
-      for (const f of pr.axe.findings) {
-        set.add(f.ruleId)
-        addFinding(f)
+    if (!pr.axe) continue
+    axeRuleIdsByPage.set(pr.url, new Set(pr.axe.findings.map((f) => f.ruleId)))
+    for (const f of pr.axe.findings) {
+      let issue = issueMap.get(f.ruleId)
+      if (!issue) {
+        issue = {
+          engine: 'axe',
+          ruleId: f.ruleId,
+          severity: f.severity,
+          wcag: f.wcag,
+          help: f.help,
+          description: f.description,
+          helpUrl: f.helpUrl,
+          instances: [],
+        }
+        issueMap.set(f.ruleId, issue)
       }
-      axeRuleIdsByPage.set(pr.url, set)
-    }
-    if (pr.htmlcs) {
-      for (const f of pr.htmlcs.findings) addFinding(f)
+      issue.instances.push({ page: f.page, selector: f.selector, snippet: f.snippet })
+      for (const sc of f.wcag) axeScPage.add(`${sc}|${f.page}`)
     }
   }
 
-  // --- 2. add Lighthouse-only failed audits (deduped vs axe per page) ---
+  // --- 2. Lighthouse-only audits (P-counted), deduped vs axe per page ---
   if (lighthouse && lighthouse.available) {
     for (const [url, lh] of Object.entries(lighthouse.pages)) {
       const axeRules = axeRuleIdsByPage.get(url) || new Set()
       for (const a of lh.failedAudits || []) {
-        if (axeRules.has(a.id)) continue // already reported by axe
-        if (issueMap.has(a.id) && issueMap.get(a.id).engine === 'axe') {
-          // same rule seen by axe on another page — attach instance, keep axe metadata
-          issueMap.get(a.id).instances.push({ page: url, selector: '', snippet: '' })
-          continue
-        }
+        if (axeRules.has(a.id)) continue
         let issue = issueMap.get(a.id)
         if (!issue) {
           issue = {
             engine: 'lighthouse',
             ruleId: a.id,
-            severity: 'P2', // Lighthouse gives no impact level
+            severity: 'P2',
             wcag: [],
             help: a.title,
             description: a.description || '',
@@ -87,32 +75,47 @@ export function mergeResults(pageResults, lighthouse, extra = {}) {
     }
   }
 
-  // --- 2.5 cross-engine confirmation ---
-  // axe and htmlcs both emit WCAG success criteria, so an issue is "confirmed"
-  // when ≥2 engines flag the same SC on the same page. Single-engine issues are
-  // flagged for manual verification (each engine has its own false positives).
-  const wcagPageEngines = new Map() // `${sc}|${page}` -> Set(engine)
+  // --- 3. HTMLCS: confirm axe findings + collect HTMLCS-only as "second opinion" ---
+  const htmlcsScPage = new Set()
+  const secondMap = new Map()
   for (const pr of pageResults) {
-    const all = [...(pr.axe ? pr.axe.findings : []), ...(pr.htmlcs ? pr.htmlcs.findings : [])]
-    for (const f of all) {
-      for (const sc of f.wcag) {
-        const key = `${sc}|${f.page}`
-        if (!wcagPageEngines.has(key)) wcagPageEngines.set(key, new Set())
-        wcagPageEngines.get(key).add(f.engine)
+    if (!pr.htmlcs) continue
+    for (const f of pr.htmlcs.findings) {
+      for (const sc of f.wcag) htmlcsScPage.add(`${sc}|${f.page}`)
+      const coveredByAxe = f.wcag.some((sc) => axeScPage.has(`${sc}|${f.page}`))
+      if (coveredByAxe) continue // used only to confirm the axe finding
+      let issue = secondMap.get(f.ruleId)
+      if (!issue) {
+        issue = {
+          engine: 'htmlcs',
+          ruleId: f.ruleId,
+          wcag: f.wcag,
+          help: f.help,
+          helpUrl: f.helpUrl,
+          instances: [],
+        }
+        secondMap.set(f.ruleId, issue)
       }
+      issue.instances.push({ page: f.page, selector: f.selector, snippet: f.snippet })
     }
   }
+
+  // confirm flag on axe issues (Lighthouse issues stay single-source)
   for (const issue of issueMap.values()) {
-    const engines = new Set([issue.engine])
+    if (issue.engine !== 'axe') {
+      issue.crossConfirmed = false
+      issue.engines = [issue.engine]
+      continue
+    }
     const pages = new Set(issue.instances.map((i) => i.page))
+    let confirmed = false
     for (const sc of issue.wcag) {
       for (const page of pages) {
-        const s = wcagPageEngines.get(`${sc}|${page}`)
-        if (s) for (const e of s) engines.add(e)
+        if (htmlcsScPage.has(`${sc}|${page}`)) confirmed = true
       }
     }
-    issue.engines = [...engines].sort()
-    issue.crossConfirmed = issue.engines.length >= 2
+    issue.crossConfirmed = confirmed
+    issue.engines = confirmed ? ['axe', 'htmlcs'] : ['axe']
   }
 
   const issues = [...issueMap.values()].sort(
@@ -121,17 +124,17 @@ export function mergeResults(pageResults, lighthouse, extra = {}) {
       Number(b.crossConfirmed) - Number(a.crossConfirmed) ||
       b.instances.length - a.instances.length
   )
-  const crossConfirmedCount = issues.filter((i) => i.crossConfirmed).length
+  const secondOpinion = [...secondMap.values()].sort((a, b) => b.instances.length - a.instances.length)
 
-  // --- 3. counts ---
+  // --- counts/scores from the PRIMARY issues only ---
   const counts = { P0: 0, P1: 0, P2: 0, P3: 0 }
   let totalInstances = 0
   for (const issue of issues) {
     counts[issue.severity] = (counts[issue.severity] || 0) + 1
     totalInstances += issue.instances.length
   }
+  const crossConfirmedCount = issues.filter((i) => i.crossConfirmed).length
 
-  // --- 4. scores ---
   const lhScores = []
   if (lighthouse && lighthouse.available) {
     for (const lh of Object.values(lighthouse.pages)) {
@@ -148,8 +151,6 @@ export function mergeResults(pageResults, lighthouse, extra = {}) {
   }
   const axePassRate = passRates.length ? Math.round(passRates.reduce((a, b) => a + b, 0) / passRates.length) : null
 
-  // composite: LH 0.4 / axe 0.4 / manual 0.2 — renormalise over present parts.
-  // The standalone script has no manual input (filled in by the skill flow).
   const parts = []
   if (lighthouseAvg != null) parts.push({ w: 0.4, v: lighthouseAvg })
   if (axePassRate != null) parts.push({ w: 0.4, v: axePassRate })
@@ -158,13 +159,14 @@ export function mergeResults(pageResults, lighthouse, extra = {}) {
 
   return {
     issues,
+    secondOpinion,
     counts,
     totalInstances,
     crossConfirmedCount,
     scores: {
       lighthouseAvg,
       axePassRate,
-      manual: null, // filled in by the skill's manual checklist walkthrough
+      manual: null,
       composite,
       compositeBand: band(composite),
     },

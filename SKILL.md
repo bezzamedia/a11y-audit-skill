@@ -10,13 +10,16 @@ license: MIT
 
 # Accessibility Audit
 
-Eén herbruikbare audit die het automatiseerbare deel van toegankelijkheidstesten draait —
-**twee onafhankelijke engines** (**axe-core** = de axe DevTools-engine, + **HTML_CodeSniffer**,
-dezelfde engine als Pa11y) met **cross-engine bevestiging**, plus **Lighthouse** voor de a11y-score
-— tegen een draaiende URL, en je daarna door de **handmatige checklist** loodst voor wat geen
-scanner vangt (toetsenbord/tab-volgorde, focusbeheer, screenreader, reflow/zoom). Resultaat: één
-gescoord WCAG 2.2-rapport met P0–P3-bevindingen, waarbij issues die door ≥2 engines bevestigd zijn
-als high-confidence (✓) gemarkeerd worden en single-engine issues als "handmatig verifiëren" (⚠).
+Eén herbruikbare audit die het automatiseerbare deel van toegankelijkheidstesten draait tegen een
+draaiende URL, en je daarna door de **handmatige checklist** loodst voor wat geen scanner vangt
+(toetsenbord/tab-volgorde, focusbeheer, screenreader, reflow/zoom). Resultaat: één gescoord
+WCAG 2.2-rapport met P0–P3-bevindingen.
+
+Engines (bedrading is benchmark-gedreven, zie `benchmark/FINDINGS.md`): **axe-core** (de
+axe DevTools-engine) is de primaire bron voor P0–P3 en de CI-gate. **HTML_CodeSniffer** (de engine
+van Pa11y) bevestigt axe-bevindingen: zien beide hetzelfde, dan krijgt de bevinding een **✓
+high-confidence**-markering. HTMLCS-only meldingen gaan naar een aparte "Tweede mening"-sectie en
+tellen niet mee in de score of de gate. **Lighthouse** levert de a11y-score.
 
 **Stack-agnostisch:** werkt op elke site die een URL serveert — lokaal dev óf live productie.
 Niets wordt in het geauditeerde project geïnstalleerd; alle dependencies leven in deze skill-map.

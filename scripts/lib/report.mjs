@@ -63,8 +63,8 @@ function buildMarkdown(merged, meta) {
   )
   lines.push('')
   lines.push(
-    `**Cross-engine:** ${merged.crossConfirmedCount} van ${merged.issues.length} issues bevestigd door ≥2 engines (axe + HTMLCS op dezelfde WCAG-SC/pagina). ` +
-      `✓ = high-confidence · ⚠ = één engine, handmatig verifiëren.`
+    `**Cross-engine:** ${merged.crossConfirmedCount} van ${merged.issues.length} axe-bevindingen zijn ook door HTMLCS bevestigd (✓ high-confidence). ` +
+      `HTMLCS-only meldingen staan apart onder "Tweede mening" en tellen niet mee in de score, P-telling of CI-gate.`
   )
   lines.push('')
   lines.push('> ⚠️ Geautomatiseerde scans dekken ~30–50% van WCAG. Een hoge score zonder ingevulde handmatige checklist betekent **niet** "toegankelijk".')
@@ -79,8 +79,8 @@ function buildMarkdown(merged, meta) {
   } else {
     for (const issue of top) {
       const wcag = issue.wcag.length ? `[WCAG ${issue.wcag.join(', ')}] ` : ''
-      const mark = issue.crossConfirmed ? '✓' : '⚠'
-      lines.push(`- ${mark} **${issue.severity}** ${wcag}${issue.help} — ${issue.instances.length}×`)
+      const mark = issue.crossConfirmed ? '✓ ' : ''
+      lines.push(`- ${mark}**${issue.severity}** ${wcag}${issue.help} — ${issue.instances.length}×`)
     }
   }
   lines.push('')
@@ -96,9 +96,7 @@ function buildMarkdown(merged, meta) {
     for (const issue of group) {
       const wcag = issue.wcag.length ? `[WCAG ${issue.wcag.join(', ')}] ` : ''
       const pages = new Set(issue.instances.map((x) => x.page)).size
-      const conf = issue.crossConfirmed
-        ? `✓ bevestigd (${issue.engines.join(' + ')})`
-        : `⚠ alleen ${issue.engine} — handmatig verifiëren`
+      const conf = issue.crossConfirmed ? '✓ bevestigd door axe + HTMLCS' : `bron: ${issue.engine}`
       lines.push(`- **${wcag}${issue.help}** — \`${issue.ruleId}\` — ${issue.instances.length}× op ${pages} pagina('s) — ${conf}`)
       if (issue.helpUrl) lines.push(`  - ℹ️ ${issue.helpUrl}`)
       for (const inst of issue.instances.slice(0, 5)) {
@@ -110,6 +108,26 @@ function buildMarkdown(merged, meta) {
     lines.push('')
   }
 
+  // --- second opinion (HTMLCS-only, not counted) ---
+  lines.push('## Tweede mening (HTMLCS-only)')
+  lines.push('')
+  if (!merged.secondOpinion || merged.secondOpinion.length === 0) {
+    lines.push('Geen extra HTMLCS-meldingen buiten wat axe al vond.')
+  } else {
+    lines.push(
+      `${merged.secondOpinion.length} melding(en) die alléén de tweede engine (HTMLCS) zag. ` +
+        `HTMLCS-only is op de ACT-benchmark ~53% precies, dus dit zijn aanwijzingen om handmatig te ` +
+        `verifiëren — ze tellen **niet** mee in de score, de P-telling of de CI-gate.`
+    )
+    for (const issue of merged.secondOpinion.slice(0, 25)) {
+      const wcag = issue.wcag.length ? `[WCAG ${issue.wcag.join(', ')}] ` : ''
+      const pages = new Set(issue.instances.map((x) => x.page)).size
+      lines.push(`- ${wcag}${issue.help} — \`${issue.ruleId}\` — ${issue.instances.length}× op ${pages} pagina('s)`)
+    }
+    if (merged.secondOpinion.length > 25) lines.push(`- … +${merged.secondOpinion.length - 25} meer`)
+  }
+  lines.push('')
+
   // --- manual checklist placeholder ---
   lines.push('## Handmatige checklist')
   lines.push('')
@@ -117,12 +135,7 @@ function buildMarkdown(merged, meta) {
   lines.push('')
 
   // --- pass (short) ---
-  const cleanPages = merged.pages.filter(
-    (p) =>
-      p.navOk &&
-      (p.axeViolations === 0 || p.axeViolations == null) &&
-      (p.htmlcsErrors === 0 || p.htmlcsErrors == null)
-  )
+  const cleanPages = merged.pages.filter((p) => p.navOk && (p.axeViolations === 0 || p.axeViolations == null))
   lines.push('## Pass (kort)')
   lines.push('')
   if (cleanPages.length) {
@@ -165,8 +178,10 @@ export function buildReport(merged, meta) {
     source: merged.source,
     truncated: merged.truncated,
     scanConditions: merged.scanConditions,
+    crossConfirmedCount: merged.crossConfirmedCount,
     pages: merged.pages,
     issues: merged.issues,
+    secondOpinion: merged.secondOpinion || [],
     skipped: merged.skipped || [],
     lighthouseSkippedReason: merged.lighthouseSkippedReason || null,
   }
