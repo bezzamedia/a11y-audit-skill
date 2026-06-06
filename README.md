@@ -1,119 +1,115 @@
-# accessibility — a reusable, stack-agnostic a11y audit skill
+# accessibility
 
-A [Claude Code](https://claude.com/claude-code) skill **and** standalone CLI that runs a
-comprehensive accessibility audit (WCAG 2.2 AA) against **any running URL** — a local dev
-server or a live production site — and produces a scored, P0–P3 report.
+A Claude Code skill (and a plain CLI) for accessibility audits. You point it at a running
+URL, either a local dev server or a live site, and it runs axe-core, HTML_CodeSniffer and
+Lighthouse against the rendered pages, then writes a WCAG 2.2 report with the issues sorted
+by severity.
 
-It consolidates a manual "open four browser tools" workflow (axe DevTools, WAVE,
-accessibilitychecker.org, Taba11y) into one repeatable run.
+The reason it exists: I was tired of opening four browser tools (axe DevTools, WAVE,
+accessibilitychecker.org, Taba11y) every time I wanted to check a page. Now it's one command.
 
-## Why it's different
+## What it does
 
-- **Two independent scan engines, not one.** [axe-core](https://github.com/dequelabs/axe-core)
-  (the engine behind the axe DevTools extension) **and** [HTML_CodeSniffer](https://github.com/squizlabs/HTML_CodeSniffer)
-  (the engine Pa11y uses), both injected into the *same* hydrated page.
-- **Cross-engine confidence.** Issues flagged by ≥2 engines on the same WCAG success criterion +
-  page are marked ✓ high-confidence; single-engine findings are marked ⚠ "verify manually".
-- **Lighthouse** accessibility score, sharing the *same* Chromium (no second browser download).
-- **Mandatory manual checklist** for what no scanner can catch — keyboard/tab order, focus
-  management, screen-reader behaviour, reflow/zoom. (Automation only covers ~30–50% of WCAG.)
-- **Stack-agnostic & zero project footprint.** It only needs a URL, so it works on Next.js,
-  Astro, WordPress, .NET, plain HTML — and installs **nothing** in the audited project.
+It runs two scan engines instead of one: axe-core, the engine inside the axe DevTools
+extension, and HTML_CodeSniffer, the engine Pa11y uses. Both run against the same rendered
+page. Their rulesets differ, so each catches things the other doesn't. When both flag the
+same WCAG criterion on the same page, the issue is marked as high-confidence; when only one
+does, it's flagged for manual review.
 
-## How it works
+It also reports a Lighthouse accessibility score, reusing the same Chromium so there's no
+second browser to download.
 
-```
-discover routes (explicit | sitemap.xml | same-origin crawl)
-   → per page: navigate (Playwright) → axe-core + HTML_CodeSniffer on the live DOM
-   → Lighthouse a11y (attached to the same Chromium)
-   → merge + de-dupe + cross-engine confirmation
-   → JSON (source of truth) + Markdown report (P0–P3, WCAG 2.2 mapped, health score)
-```
+At the end it walks through a manual checklist for the things no scanner can test: keyboard
+order, focus handling, screen readers, reflow. Automated tools only reach about a third to
+half of WCAG, so this step is not optional.
+
+Because it only needs a URL, it works on any stack (Next.js, Astro, WordPress, .NET, plain
+HTML) and installs nothing into the project you're testing.
 
 ## Install
 
-This is a Claude Code skill, so it lives under your skills directory. Clone it there:
+It's a Claude Code skill, so it lives in your skills directory:
 
 ```bash
 git clone https://github.com/bezzamedia/a11y-audit-skill.git ~/.claude/skills/accessibility
 cd ~/.claude/skills/accessibility/scripts
 npm ci
 npx playwright install chromium
-node doctor.mjs   # verify everything is present
+node doctor.mjs
 ```
 
-Dependencies (Playwright, @axe-core/playwright, axe-core, html_codesniffer, lighthouse) install
-into the skill's own folder — never into the projects you audit. Chromium is shared via the
-global Playwright cache.
+The dependencies install inside the skill folder, not into the projects you audit. Chromium
+comes from the shared Playwright cache.
 
 ## Usage
 
-### As a Claude Code skill
-In any project, just invoke it — Claude detects the dev server, runs the scan, walks the manual
-checklist with you, and writes the report:
+From Claude, in any project:
 
 ```
 /accessibility http://localhost:3000
 /accessibility https://example.com
 ```
 
-### As a standalone CLI
+Claude finds the dev server, runs the scan, goes through the manual checklist with you, and
+saves the report.
+
+Or run it from a terminal:
+
 ```bash
-# local dev server
 node ~/.claude/skills/accessibility/scripts/a11y-scan.mjs http://localhost:3000
 
-# live site (be gentle: throttle + single connection)
+# live site: throttle it and use a single connection
 node ~/.claude/skills/accessibility/scripts/a11y-scan.mjs https://example.com \
   --max-pages 20 --throttle 500 --concurrency 1 --dismiss-consent
-
-# all flags
-node ~/.claude/skills/accessibility/scripts/a11y-scan.mjs --help
 ```
 
-Handy shell alias:
+`a11y-scan --help` lists every flag. An alias saves some typing:
+
 ```bash
 alias a11y-scan='node ~/.claude/skills/accessibility/scripts/a11y-scan.mjs'
 ```
 
-### Key flags
+The flags you'll reach for most:
+
 | Flag | Purpose |
 |---|---|
-| `--routes /,/a,/b` | explicit pages (else sitemap → crawl) |
+| `--routes /,/a,/b` | explicit pages (otherwise it tries sitemap, then crawls) |
 | `--max-pages` / `--max-depth` | discovery limits (default 20 / 2) |
 | `--level A\|AA\|AAA` | conformance level (default AA) |
-| `--no-htmlcs` / `--no-lighthouse` | disable an engine |
-| `--dismiss-consent` | auto-close cookie banners |
+| `--no-htmlcs` / `--no-lighthouse` | turn an engine off |
+| `--dismiss-consent` | close cookie banners before scanning |
 | `--auth-state file.json` | audit logged-in pages (Playwright storageState) |
-| `--throttle` / `--concurrency` | politeness for live sites |
-| `--out` / `--format md\|json\|both` / `--stdout` | output control |
-| `--fail-on P0\|P1\|P2` | non-zero exit for CI gating (default P1) |
+| `--throttle` / `--concurrency` | go easy on live sites |
+| `--out` / `--format md\|json\|both` / `--stdout` | where and what to write |
+| `--fail-on P0\|P1\|P2` | non-zero exit code for CI (default P1) |
 
-## Report
+## Output
 
-The Markdown report contains: a composite health score (Lighthouse 40% / axe 40% / manual 20%),
-findings grouped P0–P3 (each with WCAG 2.2 SC, page, selector, impact, confirming engines), the
-manual checklist results, a "not tested" section, and an explicit limitations section. Reports are
-written to `docs/audits/accessibility/` (or `reports/accessibility/`) of the audited project.
+You get a JSON file with the raw data and a Markdown report. The report has a health score
+(Lighthouse 40%, axe 40%, manual checklist 20%), the findings grouped P0 to P3 with their
+WCAG criterion, page and selector, the manual checklist results, a list of what wasn't
+tested, and the known limitations. Files land in `docs/audits/accessibility/` (or
+`reports/accessibility/`) of the project you audited.
 
-> ⚠️ Automated scanners catch only ~30–50% of WCAG issues. A high automated score with an
-> un-filled manual checklist is **not** "accessible". The manual checklist is mandatory.
+Worth repeating: a green automated score does not mean a site is accessible. The scanners
+cover maybe a third to half of WCAG. Fill in the manual checklist before you trust the number.
 
-## Severity mapping
+## How findings are scored
 
-axe impact → P-level: `critical→P0 · serious→P1 · moderate→P2 · minor→P3`. HTMLCS errors default
-to P1; Lighthouse-only findings to P2. See [`references/severity-mapping.md`](references/severity-mapping.md).
+axe impact maps to P0–P3 (critical, serious, moderate, minor). HTMLCS errors default to P1,
+Lighthouse-only findings to P2. The details are in `references/severity-mapping.md`.
 
-## Repository layout
+## Layout
 
 ```
-SKILL.md                     # the Claude Code skill (orchestration flow)
+SKILL.md                     the Claude Code skill (the steps Claude follows)
 scripts/
-  a11y-scan.mjs              # CLI entry
-  doctor.mjs                 # dependency check / bootstrap
-  lib/                       # browser, discover, run-axe, run-htmlcs, run-lighthouse, consent, merge, report
-references/                  # manual checklist, tools mapping, WCAG 2.2 reference, remediation (Next.js/Astro/generic)
+  a11y-scan.mjs              CLI entry point
+  doctor.mjs                 dependency check
+  lib/                       browser, discover, run-axe, run-htmlcs, run-lighthouse, consent, merge, report
+references/                  manual checklist, tools mapping, WCAG 2.2 reference, remediation notes
 ```
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT.
